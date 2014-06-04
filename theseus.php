@@ -3,11 +3,13 @@
 $theseusPos = array();
 $minotaurPos = array();
 
-$theseus =	60;
+//Maze-specific variables; update these (and update the connections data starting on line 230) to solve different mazes.
+$theseus = 60;
 $minotaur = 73;
 $xmax = 15;
 $ymax = 9;
 $exit = 29;
+
 $timeStep = 1;
 $winFlag = 0;
 $bail = 0;
@@ -223,7 +225,7 @@ function moveMinotaur($theseus) {
 }
 
 function ConnectionsArray() {
-//The connections array records which of the adjacent squares of the maze are connected.
+//The connections array records which of the adjacent squares of the maze are connected.  The solver works for any Theseus and the Minotaur style maze; just enter the connections data here, and update the maze variables on lines 7-11.
 $connectionsTMP2 = array(
 	array(0, 1),
 	array(1, 0),
