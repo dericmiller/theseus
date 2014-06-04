@@ -3,13 +3,12 @@
 $theseusPos = array();
 $minotaurPos = array();
 
-//Maze-specific variables; update these (and update the connections data starting on line 230) to solve different mazes.
 $theseus = 60;
 $minotaur = 73;
 $xmax = 15;
 $ymax = 9;
 $exit = 29;
-
+$squarepx = 24;//The size of each square in the output .GIF, in pixels.
 $timeStep = 1;
 $winFlag = 0;
 $bail = 0;
@@ -127,7 +126,7 @@ while ($timeStep > 0 && $bail < 100000) {
 	$minotaurPath[$timeStep] = $minotaur;
 }
 
-//Collate the solution.
+//Collate the solution, and generate the HTML table that presents it.
 $tmPath = array();
 for ($andy = 1; $andy < $winLength; $andy++){
 	$tmPath[$andy-1][0] = $winTPath[$andy];
@@ -135,48 +134,11 @@ for ($andy = 1; $andy < $winLength; $andy++){
 	$tableString = $tableString . "<tr><td>$andy</td><td>".$tmPath[$andy-1][0]."</td><td>".$tmPath[$andy-1][1]."</td></tr>";	
 }
 
-//Animate the solution.
-$xpx = (10 * $xmax)+1;//image size
-$ypx = (10 * $ymax)+1;
-$image = new imagick('FinalMaze.png');
-$GIF = new Imagick();
-$GIF->setFormat("gif");
-foreach ($tmPath as $step) {
-	//$step = mysql_fetch_array($result);
-	$frame = new Imagick('FinalMaze.png');
-	$frame->quantizeImage(3,Imagick::COLORSPACE_RGB,1,false,false);
-	$frame->setImageDelay(30);
-	$theseus =	$step[0];
-	$minotaur = $step[1];
-	$theseusx = ($theseus) % $xmax;	
-	$theseusy = intval($theseus / $xmax);	
-	$minotaurx = ($minotaur) % $xmax;
-	$minotaury = intval($minotaur / $xmax);
-	$draw = new ImagickDraw(); 
-	$draw->setFillColor('blue');
-	$draw->rectangle(($theseusx*20) + 5, ($theseusy*20) + 5, ($theseusx*20) + 17, ($theseusy*20) + 17);
-	$draw->setFillColor('red');
-	$draw->rectangle(($minotaurx*20) + 5, ($minotaury*20) + 5, ($minotaurx*20) + 17, ($minotaury*20) + 17);
-	$frame->drawImage($draw);
-	$GIF->addImage($frame);	
-}
-$GIF->writeImages('solution.gif', true);
+makeMazeImage($connectionsTMP);
+makeAnimation($tmPath);
+makeWebsite($tableString);
 
-//Present the solution in HTML.
-$file = fopen("solution.html", "w");
-fwrite($file,"<html>
-	<style>
-		body{font-family:'Courier New', Courier, monospace;} 
-	</style>
-	<head>
-		<title>Theseus and the Minotaur</title>
-	</head>
-	<body>
-	<h1>Theseus and the Minotaur</h1>
-	<p>The Solution - Theseus & The Minotaur's Paths:</p>
-	<IMG SRC='solution.gif' TITLE='The Solution Path' ALT='The Solution Path'>
-	<table><tr><td>Step#</td><td>Theseus</td><td>Minotaur</td></tr>".$tableString."</table></body></html>");
-fclose($file);
+
 
 function moveMinotaur($theseus) {
 	global $minotaur, $xmax, $connections;
@@ -224,8 +186,112 @@ function moveMinotaur($theseus) {
 	return $minotaurTMP;	
 }
 
+function makeMazeImage($connectionsTMP) {
+	//Build image of maze, with square numbers.
+	
+	global $xmax, $ymax, $squarepx;	
+	
+	$xpx = ($squarepx * $xmax)+3;//image size
+	$ypx = ($squarepx * $ymax)+3;
+
+	//Build a blank grid image.
+	$image = new imagick();
+	$image->newImage($xpx, $ypx, "black", "png");
+	$image->quantizeImage(3,Imagick::COLORSPACE_RGB,1,false,false);
+	$draw = new ImagickDraw(); 
+	$draw->setFillColor('white');
+	for ($andy = 0; $andy < $xmax; $andy++) {
+		for ($billy = 0; $billy < $ymax; $billy++) {
+			$draw->rectangle(($andy*$squarepx) + 2, ($billy*$squarepx) + 2, ($andy*$squarepx) + $squarepx, ($billy*$squarepx) + $squarepx);
+		}
+	}
+	$image->drawImage($draw);
+
+	//Remove walls between connected squares.
+	$draw = new ImagickDraw(); 
+	$draw->setFillColor('light blue');
+	foreach($connectionsTMP as $connection) {
+		if (abs($connection['0'] - $connection['1']) == 1) {
+			//horizontal connection; vertical line
+			$square = max($connection['0'], $connection['1']);
+			$squarex = ($square) % $xmax;
+			$squarey = intval($square / $xmax);	
+			$draw->rectangle(($squarex*$squarepx)+1, ($squarey*$squarepx)+2, ($squarex * $squarepx)+1, ($squarey * $squarepx)+$squarepx);
+		} else {
+			//vertical connection; horizontal line
+			$square = max($connection['0'], $connection['1']);
+			$squarex = ($square) % $xmax;
+			$squarey = intval($square / $xmax);	
+			$draw->rectangle(($squarex*$squarepx)+2, ($squarey*$squarepx)+1, ($squarex * $squarepx)+$squarepx, ($squarey * $squarepx)+1);
+		}
+	}
+	$image->drawImage($draw);
+
+	//Add numbers to squares.
+	$draw->setFillColor('light blue');
+	$draw->setFontSize( 12 );
+	for ($andy = 0; $andy < $xmax * $ymax; $andy++) {
+		$x = $andy % $xmax;
+		$y = intval($andy / $xmax);
+		$image->annotateImage($draw, $x*$squarepx+4, $y*$squarepx+14, 0, $andy);
+	}
+	$image->writeImage('mapnumbers.png');
+}
+
+function makeAnimation($tmPath) {
+	//Animate each frame of the solution path.
+	global $xmax, $ymax, $squarepx;
+	$image = new imagick('mapnumbers.png');
+	$GIF = new Imagick();
+	$GIF->setFormat("gif");
+	foreach ($tmPath as $step) {
+		$frame = new Imagick('mapnumbers.png');
+		$frame->quantizeImage(3,Imagick::COLORSPACE_RGB,1,false,false);
+		$frame->setImageDelay(30);
+		$theseus =	$step[0];
+		$minotaur = $step[1];
+		$theseusx = ($theseus) % $xmax;	
+		$theseusy = intval($theseus / $xmax);	
+		$minotaurx = ($minotaur) % $xmax;
+		$minotaury = intval($minotaur / $xmax);
+		$draw = new ImagickDraw(); 
+		$draw->setFillColor('blue');
+		$draw->rectangle(($theseusx*$squarepx) + 5, ($theseusy*$squarepx) + 5, ($theseusx*$squarepx) + ($squarepx - 3), ($theseusy*$squarepx) + ($squarepx - 3));
+		$draw->setFillColor('red');
+		$draw->rectangle(($minotaurx*$squarepx) + 5, ($minotaury*$squarepx) + 5, ($minotaurx*$squarepx) + ($squarepx - 3), ($minotaury*$squarepx) + ($squarepx - 3));
+		$frame->drawImage($draw);
+		$GIF->addImage($frame);	
+	}
+	$GIF->writeImages('solution.gif', true);
+}
+
+function makeWebsite($tableString) {
+	//Present the solution in HTML.
+	$file = fopen("solution.html", "w");
+	fwrite($file,"<html>
+	<style>
+		body{font-family:'Courier New', Courier, monospace;} 
+	</style>
+	<head>
+		<title>Theseus and the Minotaur</title>
+	</head>
+	<body>
+	<h1>Theseus and the Minotaur</h1>	
+	<p>Theseus and the Minotaur mazes (invented by Robert Abbott, as presented in his book Mad Mazes) work according to the following rules:</p>
+	<p>You are placed into a maze with the Minotaur.  For every step you (Theseus) take the Minotaur gets to take up to two steps, obeying the following program for each step:</p>
+	<p>1. If possible, move one horizontal square closer to the player.</p>
+	<p>2. If no available horizontal moves bring the Minotaur closer to the player, if possible, move one vertical square closer to the player.</p>
+	<p>If the Minotaur catches you, you lose.</p>
+	<p>I've written a general solver for Theseus and the Minotaur style problems.  My php code finds the shortest maze solution, generates an animated .GIF of that solution, and outputs this web page presenting that solution.  The code can be found here: <a href='https://github.com/dericmiller/theseus'>https://github.com/dericmiller/theseus</a></p> 	
+	<p>Below, I present the program's solution to Abbott's original Theseus and the Minotaur Maze, Mad Maze #20.  In the .GIF, the blue square represents Theseus; the red square represents the Minotaur.</p>
+	<p>The Solution - Theseus & The Minotaur's Paths:</p>
+	<IMG SRC='solution.gif' TITLE='The Solution Path' ALT='The Solution Path'>	
+	<table><tr><td>Step#</td><td>Theseus</td><td>Minotaur</td></tr>".$tableString."</table></body></html>");
+	fclose($file);
+}
+
 function ConnectionsArray() {
-//The connections array records which of the adjacent squares of the maze are connected.  The solver works for any Theseus and the Minotaur style maze; just enter the connections data here, and update the maze variables on lines 7-11.
+//The connections array records which of the adjacent squares of the maze are connected.
 $connectionsTMP2 = array(
 	array(0, 1),
 	array(1, 0),
@@ -525,5 +591,3 @@ global $connectionsTMP;
 $connectionsTMP = $connectionsTMP2;
 }
 ?>
-
-	
